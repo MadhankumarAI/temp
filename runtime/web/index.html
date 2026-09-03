@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Perception Runtime</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark"></span>
+    <div>
+      <div class="t">ADAPTIVE 2.5D PERCEPTION</div>
+      <div class="s">adaptive variable-resolution mapping</div>
+    </div>
+  </div>
+
+  <div class="pills">
+    <div class="pill" id="p-state"><i class="dot"></i><span>connecting</span></div>
+    <div class="pill mono" id="p-dev">&mdash;</div>
+    <div class="pill mono" id="p-frame">frame &mdash;</div>
+  </div>
+
+  <div class="ctl">
+    <input id="root" class="mono" spellcheck="false"
+           value="D:\simulation_dataset_town01_final">
+    <button id="go" class="go">RUN</button>
+    <button id="halt" class="halt">STOP</button>
+  </div>
+</header>
+
+<main>
+  <!-- headline numbers -->
+  <section class="kpis" id="kpis"></section>
+
+  <!-- the frame budget: the one chart that says whether this ships -->
+  <section class="panel wide">
+    <div class="ph"><h2>FRAME BUDGET</h2>
+      <span class="sub" id="budget-sub">&mdash;</span></div>
+    <canvas id="c-budget" height="86"></canvas>
+    <div class="legend" id="lg-budget"></div>
+  </section>
+
+  <div class="grid">
+    <!-- CARLA render goes here. Left empty and labelled on purpose. -->
+    <section class="panel tall" id="sim-panel">
+      <div class="ph"><h2>SIMULATOR VIEW</h2>
+        <span class="sub" id="sim-sub">reserved</span></div>
+      <div class="slot" id="sim-slot">
+        <div class="slot-in">
+          <div class="slot-title">CARLA render</div>
+          <p>This panel is reserved for your simulator feed. Drop an
+             <code>&lt;img&gt;</code>, <code>&lt;video&gt;</code> or
+             <code>&lt;canvas&gt;</code> into <code>#sim-slot</code> and it
+             will fill the space; nothing else needs changing.</p>
+          <p class="dim">Its GPU cost is accounted separately from the
+             perception backend, so this panel filling up will not make the
+             backend's numbers move.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- live 2.5D drivability map -->
+    <section class="panel tall">
+      <div class="ph"><h2>2.5D MAP &middot; DRIVABILITY</h2>
+        <span class="sub" id="map-sub">&mdash;</span></div>
+      <canvas id="c-map"></canvas>
+      <div class="legend" id="lg-map"></div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <!-- resource attribution: ours vs the simulator vs the card -->
+    <section class="panel">
+      <div class="ph"><h2>RESOURCES</h2>
+        <span class="sub">attributed, not aggregated</span></div>
+      <div id="res"></div>
+      <div class="note" id="res-note"></div>
+    </section>
+
+    <!-- latency over time -->
+    <section class="panel">
+      <div class="ph"><h2>LATENCY</h2>
+        <span class="sub" id="lat-sub">&mdash;</span></div>
+      <canvas id="c-lat" height="150"></canvas>
+      <div class="note">Each bar is one sweep. The rule is the 100 ms a 10 Hz
+        lidar allows; the tail is what drops frames, not the median.</div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="ph"><h2>DETECTIONS</h2>
+        <span class="sub" id="det-sub">&mdash;</span></div>
+      <div id="det"></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><h2>TERRAIN</h2>
+        <span class="sub" id="terr-sub">&mdash;</span></div>
+      <div id="terr"></div>
+      <div class="note">Share of map cells with a verdict. Roughness has the
+        sensor's own noise removed, so it measures terrain and not the
+        instrument.</div>
+    </section>
+  </div>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+__pycache__/
+**/__pycache__/
+*.py[cod]
+# numba writes its AOT cache next to the source when cache=True
+*.nbi
+*.nbc
+.venv/
+cache/
