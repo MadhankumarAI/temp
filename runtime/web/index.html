@@ -64,7 +64,15 @@
 
     <!-- live 2.5D drivability map -->
     <section class="panel tall">
-      <div class="ph"><h2>2.5D MAP &middot; DRIVABILITY</h2>
+      <div class="ph"><h2>ADAPTIVE 2.5D MAP</h2>
+        <div class="segs" id="map-modes">
+          <button data-m="drive" class="on">DRIVABILITY</button>
+          <button data-m="elev">ELEVATION</button>
+        </div>
+        <div class="segs" id="map-views">
+          <button data-v="obl" class="on">2.5D</button>
+          <button data-v="top">TOP</button>
+        </div>
         <span class="sub" id="map-sub">&mdash;</span></div>
       <canvas id="c-map"></canvas>
       <div class="legend" id="lg-map"></div>

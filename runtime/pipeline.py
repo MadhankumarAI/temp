@@ -82,6 +82,10 @@ class Result:
     cells: dict = None                   # drivability cells, world frame
     drive_cls: np.ndarray = None         # DRIVABLE/MARGINAL/NON_DRIVABLE/UNKNOWN
     drive_score: np.ndarray = None
+    # Ground height per cell. This is the "2.5" in 2.5D and it was being
+    # computed and thrown away: cell_drivability returns it, and without it a
+    # viewer can only draw a flat classification raster.
+    drive_z: np.ndarray = None
     ms: dict = field(default_factory=dict)
     frame: int = 0
 
@@ -258,12 +262,13 @@ class Perception:
                                    min_pts=self.cfg.min_cell_pts)
             sx, sy = float(pose[0, 3]), float(pose[1, 3])
             cells = _near(cells, sx, sy, res, self.cfg.drive_radius_m)
-            score, dcls, _ = self.tc.cell_drivability(
+            score, dcls, height = self.tc.cell_drivability(
                 cells, (sx, sy), res=res,
                 sigma_sensor=self.cfg.sigma_sensor)
 
         r.labels, r.boxes, r.n_clusters = lab, boxes, int(ncl)
         r.cells, r.drive_cls, r.drive_score = cells, dcls, score
+        r.drive_z = height
         r.counts = self._counts(boxes)
         r.ms = t.ms
         r.ms["total"] = round(sum(t.ms.values()), 2)

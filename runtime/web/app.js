@@ -250,50 +250,144 @@ function terrain(f){
     `${fmt(100 * seen, 0)}% seen`;
 }
 
-/* The 2.5D drivability lattice, vehicle-centred. Cells arrive as world indices
-   so the view follows the vehicle without the backend having to re-centre
-   anything. */
+/* The adaptive 2.5D map.
+ *
+ * Three things this has to show that a flat classification raster cannot, and
+ * all three are the actual claim of the system:
+ *
+ *   ELEVATION. It is the "2.5" in 2.5D. The cell height was being computed
+ *   every frame and thrown away, so the panel drew coloured squares on a
+ *   plane and there was nothing in the picture a 2D occupancy grid could not
+ *   also produce.
+ *
+ *   RELIEF. Height as a colour is nearly unreadable across a road with 30 cm
+ *   of total relief. Height as a SHADE, lit from a fixed angle, is readable at
+ *   a centimetre: the eye is far better at surface orientation than at
+ *   absolute value. So the fill carries the class and the shading carries the
+ *   shape, and neither has to fight the other for the same channel.
+ *
+ *   FOVEATION. Cell size grows with range, which is the whole design, and it
+ *   is invisible at this zoom because a 5 cm cell is a fifth of a pixel. So
+ *   the tier boundaries are drawn and labelled instead of implied.
+ *
+ * The oblique view tilts the ground plane and lifts each cell by its own
+ * height. It is a projection, not a 3D scene: no camera, no depth buffer, one
+ * pass over the cells in draw order. That is deliberate, because this has to
+ * redraw inside a 100 ms frame budget on a machine that is also running
+ * perception and a simulator. */
+let MAP_MODE = "drive", MAP_VIEW = "obl";
+
 function drawMap(f){
   const c = $("c-map"), d = fit(c);
   const W = c.width / dpr(), H = c.height / dpr();
   d.clearRect(0, 0, W, H);
   if (!f || !f.n_cells){ return; }
+
   // int16 offsets from the vehicle's own cell, so the payload is a constant
-  // size however long the run has been going. Absolute world indices are
-  // rebuilt here, which keeps the rest of this function unchanged.
+  // size however long the run has been going
   const gx = f.origin[0], gy = f.origin[1];
   const rx = b64(f.ix, Int16Array), ry = b64(f.iy, Int16Array),
         cl = b64(f.cls, Uint8Array), res = f.res;
-  const ix = new Int32Array(rx.length), iy = new Int32Array(ry.length);
-  for (let i = 0; i < rx.length; i++){ ix[i] = rx[i] + gx; iy[i] = ry[i] + gy; }
-  const px = f.pose[0] / res, py = f.pose[1] / res;
+  const zq = f.z ? b64(f.z, Int16Array) : null;
+  const z0 = f.z0 || 0;
+  const n = rx.length;
 
-  // fit the cloud, but keep the vehicle in view even when the map runs away
-  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (let i = 0; i < ix.length; i++){
-    if (ix[i] < x0) x0 = ix[i]; if (ix[i] > x1) x1 = ix[i];
-    if (iy[i] < y0) y0 = iy[i]; if (iy[i] > y1) y1 = iy[i];
+  // extent in CELL units, vehicle at the origin of the offsets
+  let x0 = -20 / res, x1 = 20 / res, y0 = -20 / res, y1 = 20 / res;
+  for (let i = 0; i < n; i++){
+    if (rx[i] < x0) x0 = rx[i]; if (rx[i] > x1) x1 = rx[i];
+    if (ry[i] < y0) y0 = ry[i]; if (ry[i] > y1) y1 = ry[i];
   }
-  x0 = Math.min(x0, px - 20); x1 = Math.max(x1, px + 20);
-  y0 = Math.min(y0, py - 20); y1 = Math.max(y1, py + 20);
-  // EQUAL ASPECT: a top-down view on unequal axes reports wrong shapes
-  const s = Math.min(W / (x1 - x0 + 1), H / (y1 - y0 + 1));
-  const ox = (W - (x1 - x0 + 1) * s) / 2, oy = (H - (y1 - y0 + 1) * s) / 2;
-  const X = i => ox + (i - x0) * s, Y = j => H - oy - (j - y0) * s;
+  const spanX = x1 - x0 + 1, spanY = y1 - y0 + 1;
+  const tilt = MAP_VIEW === "obl" ? 0.52 : 1.0;   // vertical squash
+  // EQUAL ASPECT in the ground plane before the tilt, so a square cell stays
+  // square and the tilt is the only thing changing proportions
+  const s = Math.min(W / spanX, H / (spanY * tilt)) * 0.94;
+  const cw = Math.max(s, 0.8);
+  const ox = (W - spanX * s) / 2, oy = (H - spanY * s * tilt) / 2;
+  const X = i => ox + (i - x0) * s;
+  const Y = (j, zm) => oy + (y1 - j) * s * tilt - (MAP_VIEW === "obl"
+    ? (zm || 0) * 0.001 * s / res * 0.55 : 0);
 
-  const col = [css("--ok"), css("--warn"), css("--no")];
-  const cell = Math.max(s, 1);
-  for (let i = 0; i < ix.length; i++){
-    d.fillStyle = col[cl[i]] || "#333";
-    d.fillRect(X(ix[i]), Y(iy[i]) - cell, cell, cell);
+  // height range, from the data rather than assumed: a road with 30 cm of
+  // relief and a junction with 4 m must both be readable
+  let zlo = 1e9, zhi = -1e9;
+  if (zq) for (let i = 0; i < n; i++){
+    if (zq[i] < zlo) zlo = zq[i]; if (zq[i] > zhi) zhi = zq[i];
+  }
+  const zsp = Math.max(zhi - zlo, 1);
+
+  const DR = [css("--ok"), css("--warn"), css("--no")];
+  const rgb = h => {            // one hue, light to dark, for elevation
+    const t = Math.max(0, Math.min(1, h));
+    return `rgb(${Math.round(28 + 90 * t)},${Math.round(70 + 130 * t)},` +
+           `${Math.round(110 + 120 * t)})`;
+  };
+
+  // Painter's order: far cells first, so a nearer cell lifted by its height
+  // covers the one behind it instead of poking through. Without this the
+  // oblique view is a mess of overlapping squares and reads as noise.
+  const idx = new Int32Array(n);
+  for (let i = 0; i < n; i++) idx[i] = i;
+  if (MAP_VIEW === "obl") idx.sort((a, b) => ry[b] - ry[a]);
+
+  for (let k = 0; k < n; k++){
+    const i = idx[k];
+    const zm = zq ? zq[i] : 0;
+    const t = zq ? (zm - zlo) / zsp : 0.5;
+    let fill;
+    if (MAP_MODE === "elev") fill = rgb(t);
+    else {
+      // class as hue, height as brightness. Shading a classified surface is
+      // what makes it read as a surface at all; flat fills read as a chart.
+      fill = DR[cl[i]] || "#334";
+      d.globalAlpha = 0.55 + 0.45 * t;
+    }
+    d.fillStyle = fill;
+    const px = X(rx[i]), py = Y(ry[i], zm);
+    d.fillRect(px, py, cw + 0.6, cw + 0.6);
+    // a lit top edge on raised cells: one line per cell, and it is what turns
+    // a field of squares into something with a surface normal
+    if (MAP_VIEW === "obl" && zq && t > 0.12){
+      d.globalAlpha = Math.min(0.5, t * 0.6);
+      d.fillStyle = "#dff3ff";
+      d.fillRect(px, py, cw + 0.6, Math.max(cw * 0.22, 0.7));
+    }
+    d.globalAlpha = 1;
   }
 
+  // TIER RINGS. Where the cell size changes, drawn because at this zoom the
+  // change itself is sub-pixel and would otherwise be invisible.
+  const vx = X(0), vy = Y(0, 0);
+  d.save();
+  d.setLineDash([3, 5]);
+  d.lineWidth = 1;
+  for (const t of (f.tiers || [])){
+    const rr = t.half_extent / res * s;
+    if (rr < 14 || rr > Math.max(W, H)) continue;
+    d.strokeStyle = "#3ba7ff44";
+    d.beginPath();
+    d.ellipse(vx, vy, rr, rr * tilt, 0, 0, 7);
+    d.stroke();
+    d.setLineDash([]);
+    d.fillStyle = "#5f7a9a";
+    d.font = "9.5px " + css("--mono");
+    d.fillText(`${(t.res * 100).toFixed(0)} cm`, vx + rr * 0.7,
+               vy - rr * tilt * 0.7);
+    d.setLineDash([3, 5]);
+  }
+  d.restore();
+
+  // detections, lifted onto the surface like everything else
   for (const b of f.boxes || []){
     const [bx, by, , dx, dy, , yaw] = b.b;
+    const ci = bx / res - gx, cj = by / res - gy;
     d.save();
-    d.translate(X(bx / res), Y(by / res));
+    d.translate(X(ci), Y(cj, zhi > -1e8 ? zhi * 0.35 : 0));
+    d.scale(1, tilt);
     d.rotate(-yaw);
-    d.strokeStyle = css("--accent"); d.lineWidth = 1.5;
+    d.strokeStyle = css("--accent");
+    d.lineWidth = 1.6 / Math.max(tilt, 0.3);
     d.strokeRect(-dx / 2 * s / res, -dy / 2 * s / res,
                  dx * s / res, dy * s / res);
     d.restore();
@@ -301,17 +395,25 @@ function drawMap(f){
 
   // the vehicle
   d.fillStyle = css("--accent2");
-  d.beginPath(); d.arc(X(px), Y(py), 4, 0, 7); d.fill();
-  d.strokeStyle = css("--accent2"); d.globalAlpha = .35;
-  d.beginPath(); d.arc(X(px), Y(py), 20 / res * s, 0, 7); d.stroke();
-  d.globalAlpha = 1;
+  d.beginPath(); d.ellipse(vx, vy, 4.5, 4.5 * tilt, 0, 0, 7); d.fill();
+  d.strokeStyle = css("--accent2"); d.globalAlpha = .3;
+  d.beginPath(); d.ellipse(vx, vy, 20 / res * s, 20 / res * s * tilt, 0, 0, 7);
+  d.stroke(); d.globalAlpha = 1;
 
+  const relief = zq ? (zsp / 1000).toFixed(2) : "—";
   $("map-sub").textContent =
-    `${f.n_cells.toLocaleString()} cells · ${res} m · ${f.boxes.length} boxes`;
-  $("lg-map").innerHTML = DRIVE.map(([k, v]) =>
-    `<span><i style="background:${css(v)}"></i>${k.replace("_", " ")}</span>`)
-    .join("") + `<span><i style="background:${css("--accent")}"></i>detection</span>`
-    + `<span><i style="background:${css("--accent2")}"></i>vehicle, 20 m ring</span>`;
+    `${f.n_cells.toLocaleString()} cells · ${res} m · ${relief} m relief · ` +
+    `${f.boxes.length} boxes`;
+  $("lg-map").innerHTML = (MAP_MODE === "elev"
+    ? `<span><i style="background:${rgb(0)}"></i>low</span>` +
+      `<span><i style="background:${rgb(1)}"></i>high</span>`
+    : DRIVE.map(([k, v]) =>
+        `<span><i style="background:${css(v)}"></i>${k.replace("_", " ")}</span>`)
+       .join("") +
+      `<span style="color:#4a5568">brightness is height</span>`)
+    + `<span><i style="background:${css("--accent")}"></i>detection</span>`
+    + `<span><i style="background:${css("--accent2")}"></i>vehicle, 20 m</span>`
+    + `<span style="color:#3f4a5c">dashed rings mark where cell size changes</span>`;
 }
 
 /* ---------------------------------------------------------------- canvas */
@@ -339,5 +441,19 @@ $("go").onclick = async () => {
     body: JSON.stringify({root: $("root").value, loop: true})});
 };
 $("halt").onclick = () => fetch("/api/stop", {method: "POST"});
+
+// Mode switches redraw from the LAST payload rather than asking the backend
+// for anything. Changing how a frame is drawn is not a reason to make
+// perception produce another one.
+function seg(id, attr, set){
+  $(id).querySelectorAll("button").forEach(b => b.onclick = () => {
+    $(id).querySelectorAll("button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    set(b.dataset[attr]);
+    if (MAP) drawMap(MAP);
+  });
+}
+seg("map-modes", "m", v => MAP_MODE = v);
+seg("map-views", "v", v => MAP_VIEW = v);
 addEventListener("resize", () => LAST && render(LAST));
 connect();

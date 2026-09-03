@@ -1,0 +1,65 @@
+# Perception runtime dependencies.
+#
+# Pinned to the versions this was built and tested against, not to ranges. A
+# range means the next person's install is a different program from the one the
+# numbers in the README describe, and "works on my machine" is exactly the
+# failure a requirements file exists to prevent. Loosen deliberately, one line
+# at a time, after re-running runtime/selftest.py.
+#
+# Python 3.11. numba does not support every newer release on day one and it is
+# the hardest pin here to move.
+#
+# ---------------------------------------------------------------------------
+# TORCH: INSTALL THIS FIRST, AND FROM THE CUDA INDEX
+# ---------------------------------------------------------------------------
+# `pip install torch==2.5.1` gets the DEFAULT wheel, which on many platforms is
+# CPU-only. It imports, it runs, torch.cuda.is_available() returns False, and
+# the stack silently falls back to the CPU: everything still works and the
+# detector goes from 22 ms to about 190 ms. Nothing errors, which is why this
+# warning is at the top.
+#
+#   pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt
+#
+# Then check it took, before trusting any timing:
+#
+#   python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+#   -> 2.5.1+cu121 True
+#
+# cu121 is CUDA 12.1. Match it to your driver; a mismatch fails at import with
+# a clear message rather than silently, so this is the safe thing to change.
+torch==2.5.1+cu121
+
+# --------------------------------------------------------------- the pipeline
+numpy==2.4.6
+scipy==1.17.1          # cKDTree, and ndimage in the grid engine
+numba==0.67.0          # the parallel kernels: ground, map, canonicalisation
+llvmlite==0.49.0       # numba's backend; pinned because numba pins it tightly
+PyYAML==6.0.3          # model config
+
+# -------------------------------------------------------------- the dashboard
+fastapi==0.141.1
+uvicorn==0.52.4
+# NOT optional, and not pulled in by fastapi. Without a websocket library the
+# /ws route completes its HTTP handshake and then returns 403, the dashboard
+# reconnects forever, and the only symptom is a status pill that says
+# "offline" while every REST endpoint answers normally.
+websockets==17.1
+
+# ---------------------------------------------------------------------------
+# NOT REQUIRED, and why they are not here
+# ---------------------------------------------------------------------------
+# Some modules that ship alongside the runtime are not on its import path and
+# pull dependencies this file deliberately omits:
+#
+#   pnd/train.py, pnd/proposals.py, pnd/evaluate.py   tqdm
+#   pnd/terrain_eval.py                               tqdm, pillow
+#   pnd/canon_study.py                                open3d
+#   pnd/adapters.py                                   sensor_msgs_py (ROS 2)
+#
+# They are training and offline-evaluation tools, kept because the checkpoint
+# came from them and someone will want to retrain. Nothing in pipeline.py,
+# server.py or telemetry.py imports any of them, verified by constructing
+# Perception and reading sys.modules rather than by reading the imports.
+#
+# If you want them:  pip install tqdm pillow open3d

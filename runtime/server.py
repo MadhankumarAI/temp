@@ -161,6 +161,10 @@ class Engine:
 
         b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
         n = int(keep.sum())
+        z = np.asarray(r.drive_z, np.float64)[keep] if r.drive_z is not None             else np.zeros(n)
+        z0 = float(np.nanmin(z)) if n and np.isfinite(z).any() else 0.0
+        zq = np.clip(np.nan_to_num(z - z0, nan=0.0) * 1000.0,
+                     -32000, 32000).astype(np.int16)
         counts = {k: int((r.drive_cls == v).sum()) for k, v in
                   (("drivable", tc.DRIVABLE), ("marginal", tc.MARGINAL),
                    ("non_drivable", tc.NON_DRIVABLE),
@@ -175,12 +179,24 @@ class Engine:
             "origin": [cx, cy],
             "view_m": self.VIEW_M,
             "cls": b64(r.drive_cls[keep].astype(np.uint8)),
+            # Ground height, millimetres, int16, relative to the frame's own
+            # floor. Two bytes a cell buys the viewer an actual surface
+            # instead of a flat classification raster, and int16 in mm spans
+            # +/-32 m of relief, which is more than a ground map ever holds.
+            "z": b64(zq), "z0": round(float(z0), 3),
             "boxes": [{"c": self.per.classes[b["c"]], "s": b["s"], "b": b["b"]}
                       for b in r.boxes],
             "counts": r.counts,
             "clusters": r.n_clusters,
             "pose": [float(T[0, 3]), float(T[1, 3]), float(T[2, 3])],
             "drive": {k: v / tot for k, v in counts.items()},
+            # The tier layout, so the viewer can draw where resolution changes
+            # rather than describing it in a caption. This is the whole claim
+            # of an adaptive map and it was nowhere in the payload.
+            "tiers": [{"res": float(self.per.map.res[L]),
+                       "half_extent": float(self.per.map.n[L] *
+                                            self.per.map.res[L] / 2)}
+                      for L in range(len(self.per.map.res))],
             "drive_n": counts,
             "ms": r.ms,
             "read_ms": round(t_read, 2),

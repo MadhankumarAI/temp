@@ -1,0 +1,64 @@
+Draw the map in 2.5D, and pin the dependencies
+
+THE MAP WAS NOT 2.5D
+
+Cell elevation was computed every frame and thrown away: cell_drivability
+returns it and the caller discarded it with an underscore. So the panel
+drew coloured squares on a plane, and there was nothing in the picture a
+plain 2D occupancy grid could not also have produced.
+
+Elevation now rides in the payload as int16 millimetres, two bytes a
+cell, which spans 32 m of relief and left the frame at the same 152 KB.
+Three things changed in the renderer:
+
+An oblique projection. The ground plane is tilted and each cell lifted by
+its own height, drawn far to near so a nearer cell covers the one behind
+it rather than poking through it. It is a projection and not a 3D scene,
+with no camera and no depth buffer, because it has to redraw inside a
+frame budget on a machine that is also running perception and a
+simulator.
+
+Relief as shading rather than colour. Height as a hue is unreadable
+across a road with 30 cm of total relief; height as brightness, with
+class as hue, is readable at a centimetre, because the eye is far better
+at surface orientation than at absolute value. The fill carries the class
+and the shading carries the shape, and neither has to fight the other for
+the same channel.
+
+Tier rings, drawn and labelled at 5, 10, 20 and 40 cm. Cell size growing
+with range is the whole design of the map and it is invisible at this
+zoom, because a 5 cm cell is a fifth of a pixel. Implying it was not good
+enough.
+
+Two segmented controls, drivability against elevation and 2.5D against
+top-down. They redraw from the last payload: changing how a frame is
+drawn is not a reason to make perception produce another one.
+
+Verified by executing the real render path against a real payload in all
+four mode combinations, not by reading it: 24,757 canvas operations in
+oblique, 15,185 top-down, legend and subtitle correct, and every other
+panel still rendering. Full suite 13 of 13, including 80 real sweeps at
+45.9 ms median and p99 63.9 ms.
+
+REQUIREMENTS
+
+Nine pins, every one checked against the interpreter this was measured
+on. The list came from constructing Perception and reading sys.modules
+rather than from grepping imports: the heavy ones are lazy inside
+__init__, so a grep misses numba, scipy and yaml entirely and produces a
+file that fails on someone else's machine.
+
+Exact versions, not ranges. A range means the next install is a different
+program from the one the numbers in the README describe.
+
+Three things in it are not version numbers. Torch has to come from the
+CUDA index and go first, because the default wheel is CPU-only on many
+platforms: it imports, it runs, cuda.is_available() returns False, and
+the detector goes from 22 ms to about 190 ms with nothing reporting a
+problem. websockets is not optional and fastapi does not pull it in;
+without it the /ws route finishes its handshake and returns 403, the
+dashboard reconnects forever, and the only symptom is a pill reading
+offline while every REST endpoint answers normally. And four pnd modules
+need dependencies deliberately left out, so the file names each one and
+how to install its extras rather than letting an ImportError suggest the
+requirements are wrong.

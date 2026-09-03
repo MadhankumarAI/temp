@@ -9,6 +9,20 @@ your message types and your QoS choices rather than guessing at them.
 
 ---
 
+## Install
+
+Torch first, and from the CUDA index, or you silently get the CPU wheel and the
+detector goes from 22 ms to about 190 ms with nothing reporting a problem:
+
+```powershell
+pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+pip install -r runtime/requirements.txt
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+That last line must print `2.5.1+cu121 True` before any timing here means
+anything.
+
 ## Run it
 
 Backend + dashboard:

@@ -129,3 +129,12 @@ canvas{display:block;width:100%}
 .legend i{width:9px;height:9px;border-radius:2px;display:inline-block;
   margin-right:5px;vertical-align:-1px}
 #c-map{flex:1;min-height:250px;border-radius:10px;background:#05080c}
+
+/* --------------------------------------------------------- segmented control */
+.segs{display:flex;gap:2px;background:#0a0f17;border:1px solid var(--line);
+  border-radius:7px;padding:2px}
+.segs button{border:none;background:none;padding:3px 9px;border-radius:5px;
+  font-size:10px;letter-spacing:.1em;color:var(--ink3);font-weight:650}
+.segs button:hover{color:var(--ink2)}
+.segs button.on{background:#17324d;color:var(--accent)}
+.ph{flex-wrap:wrap;row-gap:8px}
